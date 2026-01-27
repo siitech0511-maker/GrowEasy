@@ -17,3 +17,5 @@ out/
 # Windows reserved
 nul
 NUL
+
+temp_extracted/
