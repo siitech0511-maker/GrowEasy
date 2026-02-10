@@ -1,30 +1,79 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useCallback, useMemo, useRef } from "react";
 import { X, Plus, Trash2, Building2 } from "lucide-react";
 import { apiRequest } from "@/lib/api";
+import { AgGridReact } from "ag-grid-react";
+import { AllCommunityModule, ModuleRegistry, type ColDef, type CellValueChangedEvent } from "ag-grid-community";
+
+ModuleRegistry.registerModules([AllCommunityModule]);
 
 export function ChequeDepositModal({ coa, onClose, onCreated }: { coa: any[], onClose: () => void, onCreated: () => void }) {
+    const gridRef = useRef<AgGridReact>(null);
     const [form, setForm] = useState({
         bank_account_id: "",
         deposit_date: new Date().toISOString().split('T')[0],
         reference: "",
-        company_id: "test-company",
-        cheques: [
-            { cheque_number: "", bank_name: "", amount: 0, date_on_cheque: new Date().toISOString().split('T')[0], received_from: "" }
-        ]
     });
+    const [cheques, setCheques] = useState([
+        { cheque_number: "", bank_name: "", amount: 0, date_on_cheque: new Date().toISOString().split('T')[0], received_from: "" }
+    ]);
 
-    const totalAmount = form.cheques.reduce((sum, c) => sum + (Number(c.amount) || 0), 0);
+    const totalAmount = cheques.reduce((sum, c) => sum + (Number(c.amount) || 0), 0);
+
+    const columnDefs = useMemo<ColDef[]>(() => [
+        { headerName: "Received From", field: "received_from", flex: 2, editable: true },
+        { headerName: "Cheque #", field: "cheque_number", flex: 1, editable: true },
+        { headerName: "Bank Name", field: "bank_name", flex: 1.5, editable: true },
+        { headerName: "Date on Cheque", field: "date_on_cheque", flex: 1, editable: true },
+        {
+            headerName: "Amount (₹)", field: "amount", flex: 1, editable: true,
+            cellEditor: "agNumberCellEditor", cellEditorParams: { min: 0, precision: 2 },
+            type: "numericColumn",
+            valueFormatter: (params: any) => params.value ? `₹${Number(params.value).toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : "",
+        },
+        {
+            headerName: "", field: "actions", width: 60, sortable: false, filter: false,
+            cellRenderer: (params: any) => {
+                return params.api.getDisplayedRowCount() > 1 ? (
+                    <button onClick={() => removeCheque(params.node.rowIndex!)} className="p-1 text-rose-400 hover:bg-rose-400/10 rounded transition-colors">
+                        <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                ) : null;
+            },
+        }
+    ], []);
+
+    const onCellValueChanged = useCallback((event: CellValueChangedEvent) => {
+        const updated = [...cheques];
+        const field = event.colDef.field;
+        const idx = event.rowIndex!;
+        if (field) {
+            updated[idx] = { ...updated[idx], [field]: event.newValue };
+        }
+        setCheques(updated);
+    }, [cheques]);
+
+    const removeCheque = useCallback((index: number) => {
+        if (cheques.length <= 1) return;
+        setCheques(prev => prev.filter((_, i) => i !== index));
+    }, [cheques.length]);
+
+    const addCheque = () => {
+        setCheques(prev => [...prev, { cheque_number: "", bank_name: "", amount: 0, date_on_cheque: new Date().toISOString().split('T')[0], received_from: "" }]);
+    };
+
+    const defaultColDef = useMemo(() => ({
+        sortable: false, filter: false, resizable: true, suppressMovable: true,
+    }), []);
 
     async function handleSubmit(e: React.FormEvent) {
         e.preventDefault();
         if (!form.bank_account_id) return;
-
         try {
             await apiRequest("/accounting/cheque-deposits", {
                 method: "POST",
-                body: JSON.stringify(form),
+                body: JSON.stringify({ ...form, cheques }),
             });
             onCreated();
             onClose();
@@ -33,26 +82,9 @@ export function ChequeDepositModal({ coa, onClose, onCreated }: { coa: any[], on
         }
     }
 
-    const addCheque = () => {
-        setForm({ ...form, cheques: [...form.cheques, { cheque_number: "", bank_name: "", amount: 0, date_on_cheque: new Date().toISOString().split('T')[0], received_from: "" }] });
-    };
-
-    const removeCheque = (index: number) => {
-        if (form.cheques.length <= 1) return;
-        const newCheques = [...form.cheques];
-        newCheques.splice(index, 1);
-        setForm({ ...form, cheques: newCheques });
-    };
-
-    const updateCheque = (index: number, field: string, value: any) => {
-        const newCheques = [...form.cheques];
-        newCheques[index] = { ...newCheques[index], [field]: value };
-        setForm({ ...form, cheques: newCheques });
-    };
-
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-background/80 backdrop-blur-md animate-in fade-in duration-300">
-            <div className="glass w-full max-w-2xl rounded-3xl overflow-hidden shadow-2xl border-white/20 animate-in zoom-in-95 backdrop-blur-2xl">
+            <div className="glass w-full max-w-3xl rounded-3xl overflow-hidden shadow-2xl border-white/20 animate-in zoom-in-95 backdrop-blur-2xl">
                 <div className="p-8 border-b border-white/10 flex items-center justify-between">
                     <div>
                         <h2 className="text-2xl font-black tracking-tight">Cheque Deposit</h2>
@@ -78,7 +110,7 @@ export function ChequeDepositModal({ coa, onClose, onCreated }: { coa: any[], on
                         </div>
                     </div>
 
-                    <div className="space-y-4">
+                    <div className="space-y-3">
                         <div className="flex items-center justify-between px-1">
                             <h3 className="text-sm font-black uppercase tracking-widest text-muted-foreground">Deposit Breakdown</h3>
                             <button type="button" onClick={addCheque} className="text-xs font-bold text-primary flex items-center gap-1 hover:underline">
@@ -86,28 +118,19 @@ export function ChequeDepositModal({ coa, onClose, onCreated }: { coa: any[], on
                             </button>
                         </div>
 
-                        <div className="space-y-3 max-h-[300px] overflow-y-auto pr-2">
-                            {form.cheques.map((cheque, index) => (
-                                <div key={index} className="p-4 bg-white/5 rounded-2xl border border-white/10 grid grid-cols-12 gap-4 items-end">
-                                    <div className="col-span-4 space-y-1">
-                                        <label className="text-[9px] font-bold text-muted-foreground uppercase">From (Entity)</label>
-                                        <input required placeholder="Received From" className="w-full bg-white/5 border border-white/10 rounded-lg py-2 px-3 text-xs outline-none" value={cheque.received_from} onChange={e => updateCheque(index, 'received_from', e.target.value)} />
-                                    </div>
-                                    <div className="col-span-3 space-y-1">
-                                        <label className="text-[9px] font-bold text-muted-foreground uppercase">Cheque #</label>
-                                        <input required placeholder="No." className="w-full bg-white/5 border border-white/10 rounded-lg py-2 px-3 text-xs outline-none" value={cheque.cheque_number} onChange={e => updateCheque(index, 'cheque_number', e.target.value)} />
-                                    </div>
-                                    <div className="col-span-3 space-y-1">
-                                        <label className="text-[9px] font-bold text-muted-foreground uppercase">Amount</label>
-                                        <input type="number" required className="w-full bg-white/5 border border-white/10 rounded-lg py-2 px-3 text-xs outline-none text-right font-bold" value={cheque.amount} onChange={e => updateCheque(index, 'amount', parseFloat(e.target.value) || 0)} />
-                                    </div>
-                                    <div className="col-span-2 flex justify-end pb-1">
-                                        <button type="button" onClick={() => removeCheque(index)} className="p-2 text-rose-400 hover:bg-rose-400/10 rounded-lg transition-colors">
-                                            <Trash2 className="w-4 h-4" />
-                                        </button>
-                                    </div>
-                                </div>
-                            ))}
+                        <div className="ag-theme-quartz-dark rounded-xl overflow-hidden" style={{ height: Math.min(300, 52 + cheques.length * 40) }}>
+                            <AgGridReact
+                                ref={gridRef}
+                                rowData={cheques}
+                                columnDefs={columnDefs}
+                                defaultColDef={defaultColDef}
+                                onCellValueChanged={onCellValueChanged}
+                                singleClickEdit={true}
+                                stopEditingWhenCellsLoseFocus={true}
+                                domLayout="normal"
+                                headerHeight={42}
+                                rowHeight={40}
+                            />
                         </div>
                     </div>
 
@@ -118,7 +141,7 @@ export function ChequeDepositModal({ coa, onClose, onCreated }: { coa: any[], on
                         </div>
                         <div className="flex items-center gap-2 text-muted-foreground">
                             <Building2 className="w-5 h-5 opacity-40" />
-                            <span className="text-xs font-bold uppercase tracking-tighter">{form.cheques.length} Items</span>
+                            <span className="text-xs font-bold uppercase tracking-tighter">{cheques.length} Items</span>
                         </div>
                     </div>
 

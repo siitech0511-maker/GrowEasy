@@ -12,7 +12,6 @@ export function FundTransferModal({ coa, onClose, onCreated }: { coa: any[], onC
         date: new Date().toISOString().split('T')[0],
         reference: "",
         notes: "",
-        company_id: "test-company"
     });
 
     async function handleSubmit(e: React.FormEvent) {

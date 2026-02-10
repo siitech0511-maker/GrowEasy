@@ -1,31 +1,62 @@
 from pydantic import BaseModel, condecimal
 from typing import Optional, List
 from datetime import date
-from .core import UserRole
-from ..db_models.accounting import AccountType, JournalStatus
+from schemas.core import UserRole
+from db_models.accounting import AccountType, JournalStatus
 
 class ChartOfAccountBase(BaseModel):
     code: str
     name: str
+    alias: Optional[str] = None
     type: AccountType
     sub_type: str
     description: Optional[str] = None
+    category: Optional[str] = None
+    posting_type: str = "Balance Sheet"
+    typical_balance: str = "Debit"
+    is_inactive: bool = False
+    allow_account_entry: bool = True
     opening_balance: condecimal(max_digits=20, decimal_places=2) = 0.00
+    posting_level_sales: Optional[str] = "Detail"
+    posting_level_inventory: Optional[str] = "Detail"
+    posting_level_purchasing: Optional[str] = "Detail"
+    posting_level_payroll: Optional[str] = "Detail"
+    include_in_lookup: Optional[List[str]] = None
+    user_defined_1: Optional[str] = None
+    user_defined_2: Optional[str] = None
+    user_defined_3: Optional[str] = None
+    user_defined_4: Optional[str] = None
     parent_account_id: Optional[str] = None
 
 class ChartOfAccountCreate(ChartOfAccountBase):
-    company_id: str
+    company_id: Optional[str] = None
 
 class ChartOfAccountUpdate(BaseModel):
     name: Optional[str] = None
+    alias: Optional[str] = None
     type: Optional[AccountType] = None
     sub_type: Optional[str] = None
     description: Optional[str] = None
+    category: Optional[str] = None
+    posting_type: Optional[str] = None
+    typical_balance: Optional[str] = None
+    is_inactive: Optional[bool] = None
+    allow_account_entry: Optional[bool] = None
+    posting_level_sales: Optional[str] = None
+    posting_level_inventory: Optional[str] = None
+    posting_level_purchasing: Optional[str] = None
+    posting_level_payroll: Optional[str] = None
+    include_in_lookup: Optional[List[str]] = None
+    user_defined_1: Optional[str] = None
+    user_defined_2: Optional[str] = None
+    user_defined_3: Optional[str] = None
+    user_defined_4: Optional[str] = None
     parent_account_id: Optional[str] = None
 
 class ChartOfAccount(ChartOfAccountBase):
     id: str
     company_id: str
+    current_balance: Optional[condecimal(max_digits=20, decimal_places=2)] = 0.00
     class Config:
         from_attributes = True
 
@@ -49,9 +80,10 @@ class JournalHeaderBase(BaseModel):
     date: date
     reference: str
     notes: Optional[str] = None
+    batch_id: Optional[str] = None
 
 class JournalHeaderCreate(JournalHeaderBase):
-    company_id: str
+    company_id: Optional[str] = None
     lines: List[JournalDetailCreate]
 
 class JournalHeader(JournalHeaderBase):
@@ -86,7 +118,7 @@ class PaymentHeaderBase(BaseModel):
     mode: Optional[str] = None
 
 class PaymentHeaderCreate(PaymentHeaderBase):
-    company_id: str
+    company_id: Optional[str] = None
     allocations: List[PaymentDetailCreate]
 
 class PaymentHeader(PaymentHeaderBase):
@@ -116,7 +148,7 @@ class BudgetHeaderBase(BaseModel):
     description: Optional[str] = None
 
 class BudgetHeaderCreate(BudgetHeaderBase):
-    company_id: str
+    company_id: Optional[str] = None
     lines: List[BudgetDetailCreate]
 
 class BudgetHeader(BudgetHeaderBase):
@@ -143,10 +175,25 @@ class DebitNoteHeaderBase(BaseModel):
     reference_bill_id: Optional[str] = None
     notes: Optional[str] = None
 
+class DebitNoteDetail(DebitNoteDetailBase):
+    id: str
+    debit_note_id: str
+    class Config:
+        from_attributes = True
+
 class DebitNoteHeaderCreate(DebitNoteHeaderBase):
-    company_id: str
+    company_id: Optional[str] = None
     total_amount: condecimal(max_digits=20, decimal_places=2)
     lines: List[DebitNoteDetailCreate]
+
+class DebitNoteHeader(DebitNoteHeaderBase):
+    id: str
+    company_id: str
+    total_amount: condecimal(max_digits=20, decimal_places=2)
+    status: str
+    lines: List[DebitNoteDetail]
+    class Config:
+        from_attributes = True
 
 class CreditNoteDetailBase(BaseModel):
     description: str
@@ -165,10 +212,25 @@ class CreditNoteHeaderBase(BaseModel):
     reference_invoice_id: Optional[str] = None
     notes: Optional[str] = None
 
+class CreditNoteDetail(CreditNoteDetailBase):
+    id: str
+    credit_note_id: str
+    class Config:
+        from_attributes = True
+
 class CreditNoteHeaderCreate(CreditNoteHeaderBase):
-    company_id: str
+    company_id: Optional[str] = None
     total_amount: condecimal(max_digits=20, decimal_places=2)
     lines: List[CreditNoteDetailCreate]
+
+class CreditNoteHeader(CreditNoteHeaderBase):
+    id: str
+    company_id: str
+    total_amount: condecimal(max_digits=20, decimal_places=2)
+    status: str
+    lines: List[CreditNoteDetail]
+    class Config:
+        from_attributes = True
 
 class FundTransferCreate(BaseModel):
     from_account_id: str
@@ -177,7 +239,7 @@ class FundTransferCreate(BaseModel):
     date: date
     reference: str
     notes: Optional[str] = None
-    company_id: str
+    company_id: Optional[str] = None
 
 class FundTransfer(FundTransferCreate):
     id: str
@@ -193,7 +255,7 @@ class BankReconciliationCreate(BaseModel):
     bank_account_id: str
     statement_date: date
     closing_balance_as_per_bank: condecimal(max_digits=20, decimal_places=2)
-    company_id: str
+    company_id: Optional[str] = None
     items: List[BankReconciliationDetail]
 
 class ChequeDepositDetail(BaseModel):
@@ -207,5 +269,5 @@ class ChequeDepositCreate(BaseModel):
     bank_account_id: str
     deposit_date: date
     reference: Optional[str] = None
-    company_id: str
+    company_id: Optional[str] = None
     cheques: List[ChequeDepositDetail]

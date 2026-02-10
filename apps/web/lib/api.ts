@@ -16,7 +16,10 @@ export async function apiRequest(endpoint: string, options: RequestInit = {}) {
 
     if (!response.ok) {
         const error = await response.json().catch(() => ({ detail: 'Unknown error' }));
-        throw new Error(error.detail || response.statusText);
+        const errorMessage = typeof error.detail === 'string'
+            ? error.detail
+            : JSON.stringify(error.detail || response.statusText);
+        throw new Error(errorMessage);
     }
 
     return response.json();

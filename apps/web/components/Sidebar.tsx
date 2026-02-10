@@ -17,7 +17,8 @@ import {
     Briefcase,
     PieChart,
     HardDrive,
-    Globe
+    Globe,
+    Target
 } from "lucide-react";
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
@@ -34,11 +35,25 @@ const menuGroups = [
         ],
     },
     {
-        title: "Financials",
+        title: "Accounting Master",
         items: [
-            { name: "Accounting", icon: BookOpen, href: "/accounting" },
-            { name: "GST & Compliance", icon: ShieldCheck, href: "/compliance" },
-            { name: "Payments & Banking", icon: CreditCard, href: "/banking" },
+            { name: "Chart of Accounts", icon: BookOpen, href: "/accounting/master/coa" },
+        ],
+    },
+    {
+        title: "Accounting Transactions",
+        items: [
+            { name: "Journal Entries", icon: FileText, href: "/accounting/transactions/journal" },
+            { name: "Batch Posting", icon: BookOpen, href: "/accounting/transactions/batch" },
+            { name: "Payments", icon: CreditCard, href: "/accounting/transactions/payments" },
+            { name: "Fund Transfers", icon: TrendingUp, href: "/accounting/transactions/transfers" },
+        ],
+    },
+    {
+        title: "Accounting Reports",
+        items: [
+            { name: "General Ledger", icon: PieChart, href: "/accounting/reports/ledger" },
+            { name: "Bank Reconciliation", icon: ShieldCheck, href: "/accounting/reports/bank-recon" },
         ],
     },
     {
@@ -47,11 +62,6 @@ const menuGroups = [
             { name: "Sales", icon: TrendingUp, href: "/sales" },
             { name: "Purchase & Expense", icon: ShoppingCart, href: "/purchase" },
             { name: "POS (Retail)", icon: HardDrive, href: "/pos" },
-        ],
-    },
-    {
-        title: "Logistics",
-        items: [
             { name: "Inventory", icon: Package, href: "/inventory" },
             { name: "Warehouse", icon: Truck, href: "/warehouse" },
         ],
@@ -61,7 +71,21 @@ const menuGroups = [
         items: [
             { name: "HRMS & Payroll", icon: Users, href: "/hrms" },
             { name: "Projects", icon: Briefcase, href: "/projects" },
-            { name: "CRM", icon: Globe, href: "/crm" },
+        ],
+    },
+    {
+        title: "CRM",
+        items: [
+            { name: "Insights", icon: PieChart, href: "/crm/dashboard" },
+            { name: "Leads", icon: Globe, href: "/crm/leads" },
+            { name: "Pipeline", icon: TrendingUp, href: "/crm/pipeline" },
+            { name: "Customers", icon: Users, href: "/crm/accounts" },
+        ],
+    },
+    {
+        title: "Marketing",
+        items: [
+            { name: "Lead Aggregator", icon: Target, href: "/marketing" },
         ],
     },
     {

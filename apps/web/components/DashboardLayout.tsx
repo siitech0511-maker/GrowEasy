@@ -1,5 +1,7 @@
 "use client";
 
+import { useEffect, useState } from "react";
+import { usePathname, useRouter } from "next/navigation";
 import { Sidebar } from "./Sidebar";
 import { Header } from "./Header";
 
@@ -8,6 +10,33 @@ export default function DashboardLayout({
 }: {
     children: React.ReactNode;
 }) {
+    const pathname = usePathname();
+    const router = useRouter();
+    const [checked, setChecked] = useState(false);
+
+    const isLoginPage = pathname === "/login";
+
+    useEffect(() => {
+        if (isLoginPage) {
+            setChecked(true);
+            return;
+        }
+        const token = localStorage.getItem("token");
+        if (!token) {
+            router.replace("/login");
+        } else {
+            setChecked(true);
+        }
+    }, [pathname, isLoginPage, router]);
+
+    if (isLoginPage) {
+        return <>{children}</>;
+    }
+
+    if (!checked) {
+        return null;
+    }
+
     return (
         <div className="flex min-h-screen bg-background text-foreground">
             <Sidebar />

@@ -13,6 +13,8 @@ import db_models.pos_banking
 import db_models.crm_reporting
 import db_models.admin_config
 import db_models.hr_projects
+import db_models.crm
+import db_models.marketing
 
 # Create tables
 Base.metadata.create_all(bind=engine)
@@ -31,7 +33,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+from api.v1 import crm, marketing
+
 app.include_router(api_router, prefix=settings.API_V1_STR)
+app.include_router(crm.router, prefix="/api/v1/crm", tags=["crm"])
+app.include_router(marketing.router, prefix="/api/v1/marketing", tags=["marketing"])
 
 @app.get("/")
 def read_root():

@@ -1,3 +1,4 @@
+from datetime import date
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import List
@@ -21,9 +22,6 @@ def create_chart_of_account(
     db: Session = Depends(deps.get_db),
     current_user: User = Depends(deps.get_current_user)
 ):
-    # Ensure they create account for their own company
-    if account_in.company_id != current_user.company_id:
-        raise HTTPException(status_code=403, detail="Not authorized to create account for another company")
     return service.create_chart_of_account(db, account_in=account_in, company_id=current_user.company_id)
 
 @router.get("/journals", response_model=List[schemas.JournalHeader])
@@ -44,15 +42,44 @@ def read_journal(
         raise HTTPException(status_code=404, detail="Journal entry not found")
     return journal
 
+@router.post("/journals", response_model=schemas.JournalHeader)
+def create_journal_entry(
+    journal_in: schemas.JournalHeaderCreate,
+    db: Session = Depends(deps.get_db),
+    current_user: User = Depends(deps.get_current_user)
+):
+    return service.create_journal_entry(db, journal_in=journal_in, company_id=current_user.company_id)
+
+@router.get("/batches")
+def get_batches(
+    db: Session = Depends(deps.get_db),
+    current_user: User = Depends(deps.get_current_user),
+):
+    return service.get_batches(db, current_user.company_id)
+
+@router.post("/batches/{batch_id}/post")
+def post_batch(
+    batch_id: str,
+    db: Session = Depends(deps.get_db),
+    current_user: User = Depends(deps.get_current_user),
+):
+    return service.post_batch(db, batch_id, current_user.company_id)
+
+@router.get("/payments", response_model=List[schemas.PaymentHeader])
+def read_payments(db: Session = Depends(deps.get_db), current_user: User = Depends(deps.get_current_user)):
+    return service.get_payments(db, company_id=current_user.company_id)
+
 @router.post("/payments", response_model=schemas.PaymentHeader)
 def create_payment(
     payment_in: schemas.PaymentHeaderCreate,
     db: Session = Depends(deps.get_db),
     current_user: User = Depends(deps.get_current_user)
 ):
-    if payment_in.company_id != current_user.company_id:
-        raise HTTPException(status_code=403, detail="Not authorized")
     return service.create_payment(db, payment_in=payment_in, company_id=current_user.company_id)
+
+@router.get("/budgets", response_model=List[schemas.BudgetHeader])
+def read_budgets(db: Session = Depends(deps.get_db), current_user: User = Depends(deps.get_current_user)):
+    return service.get_budgets(db, company_id=current_user.company_id)
 
 @router.post("/budgets", response_model=schemas.BudgetHeader)
 def create_budget(
@@ -60,9 +87,11 @@ def create_budget(
     db: Session = Depends(deps.get_db),
     current_user: User = Depends(deps.get_current_user)
 ):
-    if budget_in.company_id != current_user.company_id:
-        raise HTTPException(status_code=403, detail="Not authorized")
     return service.create_budget(db, budget_in=budget_in, company_id=current_user.company_id)
+
+@router.get("/debit-notes", response_model=List[schemas.DebitNoteHeader])
+def read_debit_notes(db: Session = Depends(deps.get_db), current_user: User = Depends(deps.get_current_user)):
+    return service.get_debit_notes(db, company_id=current_user.company_id)
 
 @router.post("/debit-notes", response_model=schemas.DebitNoteHeader)
 def create_debit_note(
@@ -70,9 +99,11 @@ def create_debit_note(
     db: Session = Depends(deps.get_db),
     current_user: User = Depends(deps.get_current_user)
 ):
-    if note_in.company_id != current_user.company_id:
-        raise HTTPException(status_code=403, detail="Not authorized")
     return service.create_debit_note(db, note_in=note_in, company_id=current_user.company_id)
+
+@router.get("/credit-notes", response_model=List[schemas.CreditNoteHeader])
+def read_credit_notes(db: Session = Depends(deps.get_db), current_user: User = Depends(deps.get_current_user)):
+    return service.get_credit_notes(db, company_id=current_user.company_id)
 
 @router.post("/credit-notes", response_model=schemas.CreditNoteHeader)
 def create_credit_note(
@@ -80,9 +111,11 @@ def create_credit_note(
     db: Session = Depends(deps.get_db),
     current_user: User = Depends(deps.get_current_user)
 ):
-    if note_in.company_id != current_user.company_id:
-        raise HTTPException(status_code=403, detail="Not authorized")
     return service.create_credit_note(db, note_in=note_in, company_id=current_user.company_id)
+
+@router.get("/fund-transfers", response_model=List[schemas.FundTransfer])
+def read_fund_transfers(db: Session = Depends(deps.get_db), current_user: User = Depends(deps.get_current_user)):
+    return service.get_fund_transfers(db, company_id=current_user.company_id)
 
 @router.post("/fund-transfers", response_model=schemas.FundTransfer)
 def create_fund_transfer(
@@ -90,8 +123,6 @@ def create_fund_transfer(
     db: Session = Depends(deps.get_db),
     current_user: User = Depends(deps.get_current_user)
 ):
-    if transfer_in.company_id != current_user.company_id:
-        raise HTTPException(status_code=403, detail="Not authorized")
     return service.create_fund_transfer(db, transfer_in=transfer_in, company_id=current_user.company_id)
 
 @router.post("/bank-reconciliation")
@@ -100,9 +131,11 @@ def create_bank_reconciliation(
     db: Session = Depends(deps.get_db),
     current_user: User = Depends(deps.get_current_user)
 ):
-    if rec_in.company_id != current_user.company_id:
-        raise HTTPException(status_code=403, detail="Not authorized")
     return service.create_bank_reconciliation(db, rec_in=rec_in, company_id=current_user.company_id)
+
+@router.get("/cheque-deposits")
+def read_cheque_deposits(db: Session = Depends(deps.get_db), current_user: User = Depends(deps.get_current_user)):
+    return service.get_cheque_deposits(db, company_id=current_user.company_id)
 
 @router.post("/cheque-deposits")
 def create_cheque_deposit(
@@ -110,8 +143,6 @@ def create_cheque_deposit(
     db: Session = Depends(deps.get_db),
     current_user: User = Depends(deps.get_current_user)
 ):
-    if deposit_in.company_id != current_user.company_id:
-        raise HTTPException(status_code=403, detail="Not authorized")
     return service.create_cheque_deposit(db, deposit_in=deposit_in, company_id=current_user.company_id)
 
 @router.get("/ledger-report")
@@ -123,13 +154,3 @@ def get_ledger_report(
     current_user: User = Depends(deps.get_current_user)
 ):
     return service.get_ledger_report(db, account_id=account_id, start_date=start_date, end_date=end_date, company_id=current_user.company_id)
-
-@router.post("/journals", response_model=schemas.JournalHeader)
-def create_journal_entry(
-    journal_in: schemas.JournalHeaderCreate,
-    db: Session = Depends(deps.get_db),
-    current_user: User = Depends(deps.get_current_user)
-):
-    if journal_in.company_id != current_user.company_id:
-        raise HTTPException(status_code=403, detail="Not authorized to post for another company")
-    return service.create_journal_entry(db, journal_in=journal_in, company_id=current_user.company_id)

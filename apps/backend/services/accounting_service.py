@@ -1,11 +1,14 @@
 from sqlalchemy.orm import Session
 from fastapi import HTTPException, status
 from db_models.accounting import (
-    JournalHeader, JournalDetail, ChartOfAccount, JournalStatus, 
+    JournalHeader, JournalDetail, ChartOfAccount, JournalStatus,
     PaymentHeader, PaymentDetail, BudgetHeader, BudgetDetail,
     DebitNoteHeader, DebitNoteDetail, CreditNoteHeader, CreditNoteDetail,
     DebitReason, CreditReason,
-    BankTransactionHeader, BankTransactionDetail, FundTransfer as DBFundTransfer
+    FundTransfer
+)
+from db_models.pos_banking import (
+    BankTransactionHeader, BankTransactionDetail
 )
 from schemas.accounting import (
     JournalHeaderCreate, PaymentHeaderCreate, BudgetHeaderCreate, 
@@ -13,6 +16,38 @@ from schemas.accounting import (
     FundTransferCreate, BankReconciliationCreate, ChequeDepositCreate
 )
 from decimal import Decimal
+from datetime import date
+from sqlalchemy import func, or_
+
+def calculate_account_balance(db: Session, account_id: str, company_id: str) -> Decimal:
+    account = db.query(ChartOfAccount).filter(
+        ChartOfAccount.id == account_id,
+        ChartOfAccount.company_id == company_id
+    ).first()
+    
+    if not account:
+        return Decimal(0)
+
+    # Sum all posted journal details for this account
+    result = db.query(
+        func.sum(JournalDetail.debit).label("total_debit"),
+        func.sum(JournalDetail.credit).label("total_credit")
+    ).join(JournalHeader).filter(
+        JournalDetail.account_id == account_id,
+        JournalHeader.company_id == company_id,
+        JournalHeader.status == JournalStatus.POSTED
+    ).first()
+
+    total_debit = result.total_debit or Decimal(0)
+    total_credit = result.total_credit or Decimal(0)
+    
+    opening = account.opening_balance or Decimal(0)
+    
+    if account.typical_balance == "Debit":
+        return opening + total_debit - total_credit
+    else:
+        return opening + total_credit - total_debit
+
 
 def create_journal_entry(db: Session, journal_in: JournalHeaderCreate, company_id: str):
     # Calculate totals
@@ -39,8 +74,9 @@ def create_journal_entry(db: Session, journal_in: JournalHeaderCreate, company_i
         notes=journal_in.notes,
         total_debit=total_debit,
         total_credit=total_credit,
-        status=JournalStatus.POSTED,  # Assuming auto-post for now
-        company_id=company_id
+        status=JournalStatus.DRAFT if journal_in.batch_id else JournalStatus.POSTED,
+        company_id=company_id,
+        batch_id=journal_in.batch_id
     )
     db.add(db_header)
     db.flush()  # To get header ID
@@ -73,11 +109,45 @@ def create_journal_entry(db: Session, journal_in: JournalHeaderCreate, company_i
     return db_header
 
 def get_chart_of_accounts(db: Session, company_id: str):
-    return db.query(ChartOfAccount).filter(ChartOfAccount.company_id == company_id).all()
+    accounts = db.query(ChartOfAccount).filter(ChartOfAccount.company_id == company_id).all()
+    # Populate current balance for each account
+    for acc in accounts:
+        # We assign it to the Pydantic model field (it won't persist to DB, just for response)
+        acc.current_balance = calculate_account_balance(db, acc.id, company_id)
+    return accounts
 
-def create_chart_of_account(db: Session, account_in: ChartOfAccount, company_id: str):
+    return accounts
+
+def get_batches(db: Session, company_id: str):
+    # Aggregate journals by batch_id where status is DRAFT
+    # This requires a more complex query or returning raw list
+    # For simplicity, distinct batch IDs
+    batches = db.query(JournalHeader.batch_id, func.count(JournalHeader.id).label("count"), func.sum(JournalHeader.total_debit).label("total"))\
+        .filter(JournalHeader.company_id == company_id, JournalHeader.batch_id != None, JournalHeader.status == JournalStatus.DRAFT)\
+        .group_by(JournalHeader.batch_id).all()
+    
+    return [{"id": b.batch_id, "count": b.count, "total": b.total} for b in batches]
+
+def post_batch(db: Session, batch_id: str, company_id: str):
+    journals = db.query(JournalHeader).filter(
+        JournalHeader.company_id == company_id,
+        JournalHeader.batch_id == batch_id,
+        JournalHeader.status == JournalStatus.DRAFT
+    ).all()
+    
+    if not journals:
+        raise HTTPException(status_code=404, detail="Batch not found or already posted")
+        
+    for j in journals:
+        j.status = JournalStatus.POSTED
+        
+    db.commit()
+    return {"message": f"Successfully posted {len(journals)} journals in batch {batch_id}"}
+
+def create_chart_of_account(db: Session, account_in, company_id: str):
+    data = account_in.dict(exclude={"company_id"})
     db_account = ChartOfAccount(
-        **account_in.dict(),
+        **data,
         company_id=company_id
     )
     db.add(db_account)
@@ -195,24 +265,39 @@ def create_credit_note(db: Session, note_in: CreditNoteHeaderCreate, company_id:
             quantity=line.quantity
         )
         db.add(db_detail)
-        
+
+    db.commit()
     db.refresh(db_header)
     return db_header
 
 def create_fund_transfer(db: Session, transfer_in: FundTransferCreate, company_id: str):
-    db_transfer = DBFundTransfer(
-        from_account_id=transfer_in.from_account_id,
-        to_account_id=transfer_in.to_account_id,
-        amount=transfer_in.amount,
-        date=transfer_in.date,
-        reference=transfer_in.reference,
-        notes=transfer_in.notes,
-        status="Posted",
-        company_id=company_id
-    )
-    db.add(db_transfer)
-    
-    # Automatic double-entry for fund transfer
+    # Verify both accounts exist and belong to this company
+    for acct_id in [transfer_in.from_account_id, transfer_in.to_account_id]:
+        account = db.query(ChartOfAccount).filter(
+            ChartOfAccount.id == acct_id,
+            ChartOfAccount.company_id == company_id
+        ).first()
+        if not account:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Account with ID {acct_id} not found"
+            )
+
+    # Check sufficient funds in source account
+    from_balance = calculate_account_balance(db, transfer_in.from_account_id, company_id)
+    if from_balance < transfer_in.amount:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Insufficient funds in source account. Available: {from_balance}, Requested: {transfer_in.amount}"
+        )
+
+    if transfer_in.from_account_id == transfer_in.to_account_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="From and To accounts must be different"
+        )
+
+    # Create automatic double-entry journal
     db_journal = JournalHeader(
         date=transfer_in.date,
         reference=f"FT-{transfer_in.reference}",
@@ -224,53 +309,68 @@ def create_fund_transfer(db: Session, transfer_in: FundTransferCreate, company_i
     )
     db.add(db_journal)
     db.flush()
-    
-    # Debit To Account, Credit From Account
+
     db.add(JournalDetail(journal_id=db_journal.id, account_id=transfer_in.to_account_id, debit=transfer_in.amount, credit=0))
     db.add(JournalDetail(journal_id=db_journal.id, account_id=transfer_in.from_account_id, debit=0, credit=transfer_in.amount))
-    
+
+    db_transfer = FundTransfer(
+        from_account_id=transfer_in.from_account_id,
+        to_account_id=transfer_in.to_account_id,
+        amount=transfer_in.amount,
+        date=transfer_in.date,
+        reference=transfer_in.reference,
+        notes=transfer_in.notes,
+        status="Posted",
+        company_id=company_id,
+        journal_id=db_journal.id
+    )
+    db.add(db_transfer)
+
     db.commit()
     db.refresh(db_transfer)
     return db_transfer
 
+
 def create_bank_reconciliation(db: Session, rec_in: BankReconciliationCreate, company_id: str):
-    # This logic would typically update BankTransactionDetail.is_cleared
     for item in rec_in.items:
         db_transaction = db.query(BankTransactionDetail).filter(
-            BankTransactionDetail.id == item.transaction_id,
-            # Ensure it belongs to the right bank account via header
+            BankTransactionDetail.id == item.transaction_id
+        ).join(BankTransactionHeader, BankTransactionDetail.tx_id == BankTransactionHeader.id).filter(
+            BankTransactionHeader.company_id == company_id,
+            BankTransactionHeader.bank_account_id == rec_in.bank_account_id
         ).first()
         if db_transaction:
-            db_transaction.is_reconciled = item.is_cleared
-            db_transaction.cleared_date = item.cleared_date
-            
+            # Mark parent header as reconciled if all items cleared
+            header = db.query(BankTransactionHeader).filter(
+                BankTransactionHeader.id == db_transaction.tx_id
+            ).first()
+            if header and item.is_cleared:
+                header.reconciled = True
+
     db.commit()
-    return {"status": "Reconciliation updated"}
+    return {"status": "Reconciliation updated", "bank_account_id": rec_in.bank_account_id, "statement_date": str(rec_in.statement_date)}
+
 
 def create_cheque_deposit(db: Session, deposit_in: ChequeDepositCreate, company_id: str):
     db_header = BankTransactionHeader(
         bank_account_id=deposit_in.bank_account_id,
-        transaction_date=deposit_in.deposit_date,
-        reference_number=deposit_in.reference,
-        transaction_type="Deposit",
+        date=deposit_in.deposit_date,
         total_amount=sum(c.amount for c in deposit_in.cheques),
-        status="Cleared",
+        reconciled=False,
         company_id=company_id
     )
     db.add(db_header)
     db.flush()
-    
+
     for cheque in deposit_in.cheques:
         db_detail = BankTransactionDetail(
-            header_id=db_header.id,
-            date=deposit_in.deposit_date,
+            tx_id=db_header.id,
             description=f"Cheque Deposit: {cheque.cheque_number} from {cheque.received_from}",
-            debit=cheque.amount,
-            credit=0,
-            is_reconciled=False
+            amount=cheque.amount,
+            cheque_no=cheque.cheque_number
         )
         db.add(db_detail)
-        
+
     db.commit()
     db.refresh(db_header)
     return db_header
@@ -284,3 +384,24 @@ def get_ledger_report(db: Session, account_id: str, start_date: date, end_date: 
         JournalHeader.date <= end_date
     ).all()
     return lines
+
+def get_payments(db: Session, company_id: str):
+    return db.query(PaymentHeader).filter(PaymentHeader.company_id == company_id).all()
+
+def get_budgets(db: Session, company_id: str):
+    return db.query(BudgetHeader).filter(BudgetHeader.company_id == company_id).all()
+
+def get_debit_notes(db: Session, company_id: str):
+    return db.query(DebitNoteHeader).filter(DebitNoteHeader.company_id == company_id).all()
+
+def get_credit_notes(db: Session, company_id: str):
+    return db.query(CreditNoteHeader).filter(CreditNoteHeader.company_id == company_id).all()
+
+def get_fund_transfers(db: Session, company_id: str):
+    return db.query(FundTransfer).filter(FundTransfer.company_id == company_id).all()
+
+def get_cheque_deposits(db: Session, company_id: str):
+    return db.query(BankTransactionHeader).filter(
+        BankTransactionHeader.company_id == company_id,
+        BankTransactionHeader.transaction_type == "Deposit"
+    ).all()
